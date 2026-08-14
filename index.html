@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>햄스터</title>
+
+    <!-- 홈 화면에 추가했을 때 앱처럼 뜨게 하는 것들 -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#241d1a" />
+    <!--
+      아이폰은 매니페스트를 잘 안 본다. 사파리 전용 태그를 따로 줘야
+      주소창 없이 전체화면으로 뜬다. black-translucent는 상단 상태바까지
+      방을 덮게 만든다 — 어두운 방이라 그게 어울린다.
+    -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="햄스터" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <!-- 이게 없으면 브라우저가 /favicon.ico를 멋대로 찾다가 404를 낸다 -->
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #241d1a;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+        cursor: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+    <script>
+      // 서비스워커는 배포본에서만 등록한다.
+      // 개발 중에 켜두면 고친 코드 대신 캐시된 옛 파일이 떠서 한참 헤맨다.
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+        addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+      }
+    </script>
+  </body>
+</html>
