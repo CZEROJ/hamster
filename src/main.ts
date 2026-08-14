@@ -79,7 +79,15 @@ import type { Hamster, Pointer, WorldCtx } from './sim/types';
 import { BREED_IDS, type BreedId } from './content/breeds';
 import { NamingUI } from './ui/naming';
 import { NotebookUI } from './ui/notebook';
-import { groundY, INNER_MAX, INNER_MIN, MODULE_W, originX, type Cell } from './world';
+import {
+  groundY,
+  INNER_MAX,
+  INNER_MIN,
+  MODULE_W,
+  originX,
+  ROOM_ROWS,
+  type Cell,
+} from './world';
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement;
 const screen = new Screen(canvas);
@@ -457,6 +465,22 @@ function clearPending(): void {
 }
 
 /**
+ * 물건을 놓을 칸. 손이 칸보다 위에 있어도 같은 세로줄의 바닥 칸을 준다.
+ *
+ * ★ 집처럼 키가 큰 물건은 지붕 근처를 잡게 된다. 그러면 손가락이 바닥
+ *   칸보다 위에 있어서 cellOfPoint가 아무것도 안 돌려주고, 끌어도
+ *   **아무 일이 안 일어난 채 제자리로 돌아간다.** 잡히긴 하는데 안
+ *   움직이니 고장으로 보인다.
+ *
+ *   가구는 어차피 바닥 줄에만 놓인다(habitat.move가 cy를 고정한다).
+ *   칸에서 실제로 쓰는 건 가로 위치뿐이라, 세로는 바닥으로 떨어뜨려서
+ *   찾으면 된다. 사육장 밖이면 그래도 null이라 '밖에 놓기'는 그대로 막힌다.
+ */
+function placeCell(wx: number, wy: number): Cell | null {
+  return cellOfPoint(hab, wx, wy) ?? cellOfPoint(hab, wx, groundY(ROOM_ROWS - 1) - 4);
+}
+
+/**
  * 지금 손을 떼면 상자로 들어가는가.
  *
  * ★ 불이 들어오는 판단과 실제로 들어가는 판단이 **같은 함수**여야 한다.
@@ -464,7 +488,17 @@ function clearPending(): void {
  *   후자는 물건이 소리 없이 치워지는 것이라 특히 나쁘다.
  */
 function overCrate(vx: number, vy: number, wx: number, wy: number): boolean {
-  if (cellOfPoint(hab, wx, wy)) return false; // 사육장이 이긴다
+  /**
+   * ★ 여기서는 관대한 placeCell이 아니라 **엄격한** cellOfPoint를 쓴다.
+   *
+   * placeCell은 손이 칸보다 위에 있어도 같은 세로줄의 바닥 칸을 준다.
+   * 그걸 여기에 쓰면 상자 자리도 가로로는 사육장 안이라 늘 칸이 잡히고,
+   * **상자에 넣기가 영영 안 된다.** (실제로 한 번 그렇게 막았다)
+   *
+   * 이쪽이 묻는 건 '놓을 수 있느냐'가 아니라 '지금 사육장 안을 가리키고
+   * 있느냐'다. 질문이 다르면 함수도 달라야 한다.
+   */
+  if (cellOfPoint(hab, wx, wy)) return false; // 사육장 안이면 사육장이 이긴다
   return overDropZone(vx, vy);
 }
 
@@ -866,7 +900,7 @@ window.addEventListener('pointerup', () => {
   if (hamster.held) putDown(w.x, w.y);
 
   if (dragNew) {
-    const cell = cellOfPoint(hab, w.x, w.y);
+    const cell = placeCell(w.x, w.y);
     // 꺼내던 걸 상자 위에 도로 놓으면 그냥 없던 일이 된다 — 취소하는 길.
     // 여기서도 사육장이 이긴다 (위 dragIndex 블록의 이유와 같다)
     if (!cell && overDropZone(v.x, v.y)) {
@@ -909,7 +943,7 @@ window.addEventListener('pointerup', () => {
       if (dragOrigin) hab.move(dragIndex, { cx: dragOrigin.cx, cy: dragOrigin.cy }, dragOrigin.x);
       inviteTo(dragIndex);
     } else {
-      const cell = cellOfPoint(hab, w.x, w.y);
+      const cell = placeCell(w.x, w.y);
       if (!v.inside || !cell) {
         /**
          * ★ 엉뚱한 데 놓으면 지우지 않고 되돌린다.
@@ -1214,7 +1248,7 @@ startLoop({
         const want = w.x - dragOffset - originX(f0.cx);
         if (Math.abs(want - dragOrigin.x) > 3) dragMoved = true;
       }
-      const cell = cellOfPoint(hab, w.x, w.y);
+      const cell = placeCell(w.x, w.y);
       if (dragMoved && cell) {
         const f1 = hab.furniture[dragIndex]!;
         if (FURNITURE[f1.id].mount === 'wall') {
@@ -1284,6 +1318,12 @@ startLoop({
       g.__hit = (wx: number, wy: number) => furnitureAt(wx, wy);
       // 쟁반 칸 판정도 게임이 쓰는 그대로 — 테스트가 좌표를 다시 계산하면 어긋난다
       g.__tray = () => tray;
+      // 화면 좌표가 게임에서 어느 월드로 읽히는지 (테스트 좌표가 맞는지 확인용)
+      g.__world = (cx: number, cy: number) => {
+        const vv = screen.toView(cx, cy);
+        const ww = camera.toWorld(vv.x, vv.y);
+        return { vx: vv.x, vy: vv.y, inside: vv.inside, wx: ww.x, wy: ww.y, modal: modalOpen };
+      };
       g.__foodAt = (vx: number, vy: number) => foodTrayIndex(vx, vy);
       g.__drag = () => ({
         dragIndex,
@@ -1356,7 +1396,7 @@ startLoop({
     if (dragIndex >= 0) {
       const f = hab.furniture[dragIndex];
       if (f) {
-        const cell = cellOfPoint(hab, worldPointer.x, worldPointer.y);
+        const cell = placeCell(worldPointer.x, worldPointer.y);
         if (cell) drawDropGhost(c, f.id, originX(f.cx) + f.x, groundY(f.cy) - (f.lift ?? 0));
         // 손에 든 것은 아래(④)에서 전부의 위에 그린다
       }
@@ -1366,7 +1406,7 @@ startLoop({
      * 자리는 사육장 좌표계 안에, 손은 그 위에. 순서가 곧 높이다.
      */
     if (dragNew) {
-      const cell = cellOfPoint(hab, worldPointer.x, worldPointer.y);
+      const cell = placeCell(worldPointer.x, worldPointer.y);
       const def = FURNITURE[dragNew];
       if (cell) {
         const gx = clamp(

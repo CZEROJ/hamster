@@ -24,6 +24,21 @@ const PAD_BOTTOM = 42;
 const DEAD_W = 0.22;
 const DEAD_H = 0.16;
 
+/**
+ * ★ 책상선이 화면 어디에 앉는가. 이 아래는 전부 책상(갈색 널판)이다.
+ *
+ * 0.78이었다. 화면의 22%가 책상이라는 뜻이고, 폰처럼 낮은 화면에서는
+ * 그 22%가 뼈아프다 — 볼 게 없는 갈색 띠에 방이 밀린다.
+ *
+ * 0.86으로 내리면 책상은 14%만 쓰고 방이 그만큼 올라온다.
+ *
+ * ★ 이 값이 상수로 빠져 있어야 하는 이유:
+ *   카메라가 줌을 정할 때(roomFit)와 책상선을 붙들 때(deskFloor)가
+ *   같은 숫자를 봐야 한다. 예전엔 0.78이 두 군데 따로 적혀 있었다.
+ *   한쪽만 고치면 방이 잘리거나 책상이 화면을 먹는다.
+ */
+const DESK_LINE = 0.86;
+
 export class Camera {
   scale = 1;
   x = 0;
@@ -52,7 +67,7 @@ export class Camera {
      * 화면이 넉넉하면 이 항은 MAX_ZOOM보다 커서 아무 영향이 없다 —
      * PC는 예전과 똑같이 동작하고, 좁은 화면에서만 조용히 물러난다.
      */
-    const roomFit = (VIEW_H * 0.78) / ROOM_ABOVE_DESK;
+    const roomFit = (VIEW_H * DESK_LINE) / ROOM_ABOVE_DESK;
 
     // 방이 화면보다 작으면 다가가서 본다. 멀리서 보면 아늑한 게 아니라 그냥 멀다.
     const targetScale = clamp(
@@ -75,7 +90,7 @@ export class Camera {
      * 볼 게 없고, 그만큼 벽(소품이 있는 쪽)이 밀려난다.
      * 책상이 아래 띠로만 남게 카메라를 눌러두면, 창이 길수록 벽이 더 보인다.
      */
-    const deskFloor = DESK_Y - (VIEW_H * 0.78 - this.cy()) / targetScale;
+    const deskFloor = DESK_Y - (VIEW_H * DESK_LINE - this.cy()) / targetScale;
     cy = Math.min(cy, deskFloor);
 
     if (this.first) {
