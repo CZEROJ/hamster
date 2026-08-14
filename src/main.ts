@@ -387,7 +387,7 @@ const CRATE_SEEN = 'hamster.crateSeen.v1';
 let neverOpenedCrate = localStorage.getItem(CRATE_SEEN) !== '1';
 
 /**
- * ★ 손가락 기기: 톡 = 상호작용, 길게 = 집기.
+ * ★ 손가락 기기: 톡 = 상호작용, 길게 **또는 끌면** = 집기.
  *
  * 예전엔 누르는 순간 바로 집혔다. 폰에서는 손가락이 늘 조금씩 흔들리니까,
  * 부르려던 것이 자꾸 '옮기려 했다'로 판정됐다. 햄스터는 더 나빴다 —
@@ -399,8 +399,25 @@ let neverOpenedCrate = localStorage.getItem(CRATE_SEEN) !== '1';
  * 요구하면 멀쩡하던 조작이 느려지기만 한다. 그래서 손가락일 때만 갈라진다.
  */
 const HOLD_MS = 380;
-/** 이만큼 움직이면 '길게 누르기'가 아니다 — 손을 뗀 게 아니라 끌기 시작한 것 */
-const HOLD_SLOP = 7;
+/**
+ * ★ 이만큼 끌면 기다리지 않고 바로 집는다.
+ *
+ * 처음엔 반대로 했다 — 380ms 안에 7px 넘게 움직이면 집기를 **취소**했다.
+ * 스크롤과 길게 누르기를 가르는 흔한 방법이라 그대로 가져왔는데,
+ * 이 게임에는 스크롤이 없다. 남은 건 부작용뿐이었다:
+ *
+ *   물건을 옮기려는 사람은 누르자마자 끈다. 가만히 있을 이유가 없다.
+ *   그래서 **아무것도 안 움직였다.** 정확히 380ms를 참은 사람만 옮길 수
+ *   있었으니, 사실상 이동 기능이 없는 것과 같았다.
+ *
+ * 그래서 뒤집었다. 끄는 건 집으려는 뜻이 분명하니 기다릴 이유가 없다.
+ * 톡(짧고 안 움직임)만 상호작용으로 남는다.
+ *
+ * 14는 손가락 떨림보다 확실히 크고(화면에서 약 24px) 의도적으로 끄는
+ * 것보다는 작다. 3px이었다면 부르려다 옮기게 되고, 40px이었다면
+ * 끌기 시작한 뒤에도 한참 안 따라온다.
+ */
+const DRAG_GRAB = 14;
 
 type Pending = {
   kind: 'hamster' | 'furniture';
@@ -1018,18 +1035,14 @@ startLoop({
      */
     if (pending) {
       const moved = Math.hypot(v.x - pending.vx, v.y - pending.vy);
-      if (moved > HOLD_SLOP) {
-        // 익기 전에 끌기 시작했다 — 집으려던 게 아니다
+      holdT = clamp((now - pending.t0) / HOLD_MS, 0, 1);
+      // 시간이 다 찼거나, 확실히 끌기 시작했거나. 둘 중 하나면 집는다.
+      if (holdT >= 1 || moved > DRAG_GRAB) {
+        const p = pending;
         clearPending();
-      } else {
-        holdT = clamp((now - pending.t0) / HOLD_MS, 0, 1);
-        if (holdT >= 1) {
-          const p = pending;
-          clearPending();
-          buzz(14); // 손끝으로 "잡혔다"고 대답한다
-          if (p.kind === 'hamster') grabHamster(now);
-          else grabFurniture(p.index, w.x);
-        }
+        buzz(14); // 손끝으로 "잡혔다"고 대답한다
+        if (p.kind === 'hamster') grabHamster(now);
+        else grabFurniture(p.index, w.x);
       }
     }
 
