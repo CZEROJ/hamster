@@ -716,11 +716,27 @@ canvas.addEventListener('pointerdown', (e) => {
 
   if (tray === 'food') {
     const i = foodTrayIndex(v.x, v.y);
-    if (i >= 0) {
-      hab.bowlFood = FOOD_IDS[i]!;
-      log.append(now, 'food.given', { food: FOOD_IDS[i]! });
+    const food = i >= 0 ? FOOD_IDS[i] : undefined;
+    /**
+     * ★ 아직 없는 먹이는 못 준다.
+     *
+     * 이 검사가 통째로 빠져 있었다. 검은 실루엣(도감에서 아직 못 채운
+     * 칸)을 눌러도 그대로 그릇에 담겼다. 20가지 전부 처음부터 먹일 수
+     * 있었다는 뜻이고, 그러면 **매일 하나씩 받는 일에 이유가 없어진다.**
+     * 내일 다시 들어올 이유를 스스로 지우고 있었던 셈이다.
+     *
+     * 가구 쟁반에는 같은 검사가 있었다(canPlace). 먹이만 없었다.
+     */
+    if (food && hab.foods.has(food)) {
+      hab.bowlFood = food;
+      log.append(now, 'food.given', { food });
       hamster.hunger = Math.min(1, hamster.hunger + 0.15);
       tray = 'none';
+      return;
+    }
+    if (food) {
+      // 왜 안 되는지 말해준다. 아무 반응이 없으면 고장으로 읽힌다.
+      toast = { text: '아직 없는 먹이예요', t: 0 };
       return;
     }
   } else if (tray === 'shelf') {
@@ -1266,6 +1282,9 @@ startLoop({
       // 테스트가 화면 어디를 눌러야 하는지 알 수 있게 (데모에서만)
       // 어느 가구가 잡히는지 / 지금 무엇을 들고 있는지 (테스트에서 눈으로 못 보는 것)
       g.__hit = (wx: number, wy: number) => furnitureAt(wx, wy);
+      // 쟁반 칸 판정도 게임이 쓰는 그대로 — 테스트가 좌표를 다시 계산하면 어긋난다
+      g.__tray = () => tray;
+      g.__foodAt = (vx: number, vy: number) => foodTrayIndex(vx, vy);
       g.__drag = () => ({
         dragIndex,
         dragOffset: Math.round(dragOffset * 10) / 10,
