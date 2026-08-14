@@ -60,7 +60,8 @@ import { drawHabitatBack, drawHabitatFront } from './render/module';
 import { drawNotebook, notebookHit } from './render/notebook';
 import { drawReveal, type Reveal } from './render/reveal';
 import { P } from './render/palette';
-import { Screen, VIEW_H, VIEW_W } from './render/screen';
+import { drawDropZone, overDropZone } from './render/dropzone';
+import { COARSE, Screen, VIEW_H, VIEW_W } from './render/screen';
 import { drawDust, drawGrain, drawTemperature, drawVignette } from './render/finish';
 import { drawSeasonTint, skyColor } from './render/weather';
 import { computeEntrainment, isUsualHour, type Entrainment } from './sim/entrainment';
@@ -385,6 +386,106 @@ let prevCarryX = 0;
 const CRATE_SEEN = 'hamster.crateSeen.v1';
 let neverOpenedCrate = localStorage.getItem(CRATE_SEEN) !== '1';
 
+/**
+ * ★ 손가락 기기: 톡 = 상호작용, 길게 = 집기.
+ *
+ * 예전엔 누르는 순간 바로 집혔다. 폰에서는 손가락이 늘 조금씩 흔들리니까,
+ * 부르려던 것이 자꾸 '옮기려 했다'로 판정됐다. 햄스터는 더 나빴다 —
+ * 만지려면 반드시 들어올려야 했다. **납치하지 않고는 인사할 수가 없었다.**
+ *
+ * 살아있는 걸 들어올리는 건 작정해야 하는 일이어야 한다. 톡은 인사다.
+ *
+ * 마우스는 이 문제가 없다(뾰족하고 안 흔들린다). 데스크톱에서 길게 누르기를
+ * 요구하면 멀쩡하던 조작이 느려지기만 한다. 그래서 손가락일 때만 갈라진다.
+ */
+const HOLD_MS = 380;
+/** 이만큼 움직이면 '길게 누르기'가 아니다 — 손을 뗀 게 아니라 끌기 시작한 것 */
+const HOLD_SLOP = 7;
+
+type Pending = {
+  kind: 'hamster' | 'furniture';
+  index: number;
+  t0: number;
+  vx: number;
+  vy: number;
+};
+/** 아직 집을지 부를지 안 정해진 누름 (손가락 기기에서만 생긴다) */
+let pending: Pending | null = null;
+/** 0→1. 길게 누르는 동안 차오르는 표시 — 없으면 고장 난 줄 안다 */
+let holdT = 0;
+/** 놓는 자리가 나타나는 정도 */
+let dropT = 0;
+
+/** 폰이 손끝으로 대답해준다. 없는 기기에서는 조용히 아무 일도 안 한다. */
+function buzz(ms: number): void {
+  try {
+    navigator.vibrate?.(ms);
+  } catch {
+    /* 지원 안 하면 그만이다 */
+  }
+}
+
+function clearPending(): void {
+  pending = null;
+  holdT = 0;
+}
+
+function grabHamster(now: number): void {
+  hamster.held = true;
+  hamster.falling = false; // 떨어지는 중에 다시 잡을 수 있다
+  hamster.petting = false;
+  sfx.play('rustle', 0.7);
+  if (!log.all().some((ev) => ev.type === 'hamster.held')) {
+    log.append(now, 'hamster.held');
+  }
+}
+
+function grabFurniture(idx: number, wx: number): void {
+  const f = hab.furniture[idx];
+  if (!f) return;
+  dragIndex = idx;
+  dragOffset = wx - (originX(f.cx) + f.x);
+  // 취소할 때 되돌릴 자리를 기억해 둔다
+  dragOrigin = { cx: f.cx, cy: f.cy, x: f.x };
+  // 톡 누른 것과 끌어서 옮긴 것을 손 뗄 때 구분한다
+  dragMoved = false;
+}
+
+/**
+ * 톡 눌렀다 — 집으려던 게 아니다.
+ *
+ * 햄스터는 인사, 가구는 부르기. 쓰다듬기가 원래 '호버 0.28초'로 되어
+ * 있어서 폰에서는 아예 닿을 수가 없었다. 손가락엔 호버가 없으니까.
+ * 이 게임에서 제일 다정한 동작이 폰에서만 없던 셈이다.
+ */
+function tapOn(p: Pending): void {
+  if (p.kind === 'hamster') {
+    if (hamster.asleep) {
+      hamster.earTwitchVel += 9; // 자는 애는 안 깨운다. 들리긴 했다는 표시만.
+      return;
+    }
+    /**
+     * ★ 톡 = 쓰다듬기 시도.
+     *
+     * 처음엔 아무것도 안 하고 원래 길(포인터를 가만히 두면 0.28초 뒤
+     * 판정)에 맡겼다. 손을 떼도 마지막 손가락 자리가 포인터로 남으니까
+     * 될 줄 알았는데, 재보니 안 됐다 — 햄스터가 그 사이 걸어가버리면
+     * 접촉이 끊기고, 남은 건 화면에 박힌 유령 포인터뿐이다.
+     *
+     * 애초에 '손을 떼도 계속 올려두고 있다'는 건 마우스 발상이었다.
+     *
+     * 그래서 톡이 판정을 직접 부른다. 다만 **성공시키는 게 아니라
+     * 물어보는 것**이다 — 받아줄지 튕길지는 그대로 햄스터가 정한다.
+     * 거절할 수 있어야 승낙이 의미를 갖는다.
+     */
+    hamster.attention = Math.min(1, hamster.attention + 0.5);
+    hamster.earPerk = 1;
+    hamster.petPoke = 0.3; // '가만히 있었다' 대신 — 받아줄지는 얘가 정한다
+  } else {
+    inviteTo(p.index);
+  }
+}
+
 window.addEventListener(
   'pointermove',
   (e: PointerEvent) => {
@@ -519,11 +620,14 @@ canvas.addEventListener('pointerdown', (e) => {
   } else if (tray === 'shelf') {
     const i = shelfTrayIndex(v.x, v.y);
     const id = i >= 0 ? FURNITURE_IDS[i] : undefined;
-    // 실루엣(아직 없는 것)과 이미 나가 있는 것은 집히지 않는다
-    // 가진 것이면 몇 번이든 다시 꺼낼 수 있다 (실루엣만 안 집힌다)
-    if (id && hab.unlocked.has(id)) {
+    if (id && hab.canPlace(id)) {
       dragNew = id;
       tray = 'none';
+      return;
+    }
+    // 이미 나가 있는 것 — 왜 안 집히는지 말해준다. 안 그러면 고장으로 읽힌다.
+    if (id && hab.unlocked.has(id) && hab.isPlaced(id)) {
+      toast = { text: '이미 놓여 있어요', t: 0 };
       return;
     }
   } else if (tray === 'hamster') {
@@ -584,27 +688,18 @@ canvas.addEventListener('pointerdown', (e) => {
 
   // 햄스터가 가구보다 먼저다 — 겹쳐 있으면 주인공을 집는다
   if (overHamster(w.x, w.y)) {
-    hamster.held = true;
-    hamster.falling = false; // 떨어지는 중에 다시 잡을 수 있다
-    hamster.petting = false;
     tray = 'none';
-    sfx.play('rustle', 0.7);
-    if (!log.all().some((ev) => ev.type === 'hamster.held')) {
-      log.append(now, 'hamster.held');
-    }
+    // 손가락이면 아직 집지 않는다. 톡이면 인사, 길게면 들어올리기.
+    if (COARSE) pending = { kind: 'hamster', index: -1, t0: now, vx: v.x, vy: v.y };
+    else grabHamster(now);
     return;
   }
 
   const idx = furnitureAt(w.x, w.y);
   if (idx >= 0) {
-    dragIndex = idx;
-    dragOffset = w.x - (originX(hab.furniture[idx]!.cx) + hab.furniture[idx]!.x);
-    // 취소할 때 되돌릴 자리를 기억해 둔다
-    const f = hab.furniture[idx]!;
-    dragOrigin = { cx: f.cx, cy: f.cy, x: f.x };
-    // 톡 누른 것과 끌어서 옮긴 것을 손 뗄 때 구분한다
-    dragMoved = false;
     tray = 'none';
+    if (COARSE) pending = { kind: 'furniture', index: idx, t0: now, vx: v.x, vy: v.y };
+    else grabFurniture(idx, w.x);
     return;
   }
 
@@ -629,11 +724,32 @@ window.addEventListener('pointerup', () => {
   const v = screen.toView(clientX, clientY);
   const w = camera.toWorld(v.x, v.y);
 
+  // 길게 누르기가 익기 전에 손을 뗐다 → 톡이다. 집는 게 아니라 부르는 것.
+  if (pending) {
+    const p = pending;
+    clearPending();
+    tapOn(p);
+    return;
+  }
+
+  /**
+   * 햄스터에는 놓는 자리를 안 띄운다.
+   *
+   * 집을 수 있는 건 '내 햄스터'뿐이고(overHamster), 내 햄스터는 MY_BREED라
+   * 이동장으로 보낼 수가 없다. 띄워놓으면 눌러도 아무 일이 안 일어나는
+   * 자리가 된다. 안 되는 걸 보여주는 게 안 보여주는 것보다 나쁘다.
+   *
+   * 같이 사는 애들을 집을 수 있게 되면 그때 이어붙일 자리다.
+   */
   if (hamster.held) putDown(w.x, w.y);
 
   if (dragNew) {
     const cell = cellOfPoint(hab, w.x, w.y);
-    if (v.inside && cell) {
+    // 꺼내던 걸 상자 위에 도로 놓으면 그냥 없던 일이 된다 — 취소하는 길
+    if (overDropZone(v.x, v.y)) {
+      dragNew = null;
+      dropT = 0;
+    } else if (v.inside && cell) {
       // 벽에 거는 물건은 가까운 쪽 벽으로 붙는다
       if (FURNITURE[dragNew].mount === 'wall') {
         const s = hab.snapToWall(dragNew, w.x);
@@ -646,7 +762,13 @@ window.addEventListener('pointerup', () => {
     dragNew = null;
   }
   if (dragIndex >= 0) {
-    if (!dragMoved) {
+    if (overDropZone(v.x, v.y)) {
+      // 상자에 넣는다 — 없어지는 게 아니라 장난감통으로 돌아간다
+      hab.remove(dragIndex);
+      sfx.play('rustle', 0.6);
+      buzz(12);
+      toast = { text: '상자에 넣었어요', t: 0 };
+    } else if (!dragMoved) {
       /**
        * 끌지 않고 톡 눌렀다 — 옮기려던 게 아니라 부른 것이다.
        * 손가락이 조금 흔들린 만큼은 원래 자리로 되돌린 뒤 부른다.
@@ -656,13 +778,22 @@ window.addEventListener('pointerup', () => {
     } else {
       const cell = cellOfPoint(hab, w.x, w.y);
       if (!v.inside || !cell) {
-        hab.remove(dragIndex);
-        sfx.play('rustle', 0.6);
+        /**
+         * ★ 엉뚱한 데 놓으면 지우지 않고 되돌린다.
+         *
+         * 예전엔 여기서 그냥 없앴다. "칸 밖에 놓으면 삭제"는 보이지도
+         * 알려주지도 않는 규칙이라, 치우려는 사람은 못 찾고 옮기려던
+         * 사람은 실수로 없앴다. 이제 없애는 자리가 화면에 있으니
+         * 여기서는 안전한 쪽으로만 간다.
+         */
+        if (dragOrigin) hab.move(dragIndex, { cx: dragOrigin.cx, cy: dragOrigin.cy }, dragOrigin.x);
       }
     }
     dragIndex = -1;
     dragOrigin = null;
+    dropT = 0;
   }
+  if (dragNew === null && dragIndex < 0) dropT = 0;
 });
 
 // ── 접속 감지 ───────────────────────────────────────────
@@ -878,6 +1009,34 @@ startLoop({
             ? substrateTrayIndex(v.x, v.y)
             : -1;
 
+    /**
+     * ★ 길게 누르기가 익는 곳.
+     *
+     * setTimeout이 아니라 루프에서 센다. 타이머로 하면 차오르는 표시와
+     * 실제 발동 시점이 따로 놀아서, 다 찬 것처럼 보이는데 아직 안 되거나
+     * 그 반대가 된다. 눈에 보이는 것과 실제가 어긋나면 고장 난 걸로 읽힌다.
+     */
+    if (pending) {
+      const moved = Math.hypot(v.x - pending.vx, v.y - pending.vy);
+      if (moved > HOLD_SLOP) {
+        // 익기 전에 끌기 시작했다 — 집으려던 게 아니다
+        clearPending();
+      } else {
+        holdT = clamp((now - pending.t0) / HOLD_MS, 0, 1);
+        if (holdT >= 1) {
+          const p = pending;
+          clearPending();
+          buzz(14); // 손끝으로 "잡혔다"고 대답한다
+          if (p.kind === 'hamster') grabHamster(now);
+          else grabFurniture(p.index, w.x);
+        }
+      }
+    }
+
+    // 놓는 자리는 가구를 들고 있을 때만 뜬다 (햄스터는 갈 데가 없다)
+    const wantDrop = dragIndex >= 0 || dragNew !== null;
+    dropT = clamp(dropT + (wantDrop ? dt * 6 : -dt * 9), 0, 1);
+
     if (dragIndex >= 0) {
       // 손이 이만큼 움직였으면 '옮기는 중'이다. 그 아래는 톡 누른 것으로 친다.
       const f0 = hab.furniture[dragIndex];
@@ -1017,7 +1176,7 @@ startLoop({
       if (f) {
         const cell = cellOfPoint(hab, worldPointer.x, worldPointer.y);
         if (cell) drawDropGhost(c, f.id, originX(f.cx) + f.x, groundY(f.cy) - (f.lift ?? 0));
-        drawCarried(c, f.id, worldPointer.x, worldPointer.y, carryTilt, now);
+        // 손에 든 것은 아래(④)에서 전부의 위에 그린다
       }
     }
     /**
@@ -1035,7 +1194,6 @@ startLoop({
         );
         drawDropGhost(c, dragNew, gx, groundY(cell.cy) - liftFor(dragNew, worldPointer));
       }
-      drawCarried(c, dragNew, worldPointer.x, worldPointer.y, carryTilt, now);
     }
     // 러닝휠 앞테처럼 햄스터를 가로질러야 하는 부분
     drawFurnitureFront(c, hab, now, dragIndex, (i) => spin.get(i) ?? 0);
@@ -1063,11 +1221,12 @@ startLoop({
     if (toast) drawToast(c, toast.text, toast.t);
     c.restore();
 
+
     if (tray === 'food') {
       drawFoodTray(c, trayHover, hab.foods);
       if (trayHover >= 0) drawFoodLabel(c, FOOD_IDS[trayHover]!, hab.foods);
     } else if (tray === 'shelf') {
-      drawShelfTray(c, trayHover, hab.unlocked, hab.placedIds());
+      drawShelfTray(c, trayHover, hab.unlocked, hab.placedIds(), (id) => hab.canPlace(id));
       if (trayHover >= 0) drawFurnitureLabel(c, FURNITURE_IDS[trayHover]!, hab.unlocked);
     } else if (tray === 'hamster') {
       drawHamsterTray(c, trayHover, hab.hamsters, hab.active);
@@ -1077,14 +1236,75 @@ startLoop({
       if (trayHover >= 0) drawSubstrateLabel(c, trayHover);
     }
 
+    /**
+     * 놓는 자리 — 쟁반보다는 위, 소포보다는 아래.
+     * 물건을 들고 있을 때만 나타난다. 늘 떠 있으면 방에 붙은 버튼이 되고,
+     * 이 게임에서 화면에 상주하는 버튼은 책상 위 다섯 개로 충분하다.
+     */
+    if (dropT > 0.01) {
+      drawDropZone(c, 'crate', dropT, overDropZone(pointer.x, pointer.y));
+    }
+
+    /**
+     * ★ 손에 든 물건은 전부의 위에. 놓는 자리보다도 위다.
+     *
+     * 예전엔 사육장과 같은 층에 그렸다. 그러면 상자에 넣으려고 아래로
+     * 내리는 순간 책상 뒤로 숨어서 **손에서 사라졌다.** 뭘 들고 있었는지
+     * 놓치고, 어디에 떨어뜨리는지도 모르게 된다.
+     *
+     * 놓는 자리(상자)는 책상에 놓인 자리고 손은 그 위를 지나간다.
+     * 순서가 곧 높이다 — 알약을 나중에 그리면 손에 든 게 알약 뒤로 숨는다.
+     *
+     * 좌표는 그대로 월드다. 카메라만 다시 걸어준다 — 그래야 방 안에 있을
+     * 때 크기와 자리가 어긋나지 않는다.
+     */
+    if (dragIndex >= 0 || dragNew) {
+      c.save();
+      camera.apply(c);
+      const id = dragNew ?? hab.furniture[dragIndex]?.id;
+      if (id) drawCarried(c, id, worldPointer.x, worldPointer.y, carryTilt, now);
+      camera.release(c);
+      c.restore();
+    }
+
     // 소포 결과는 전부의 위에 — 잠깐 이것만 보라는 뜻이다
     if (reveal) drawReveal(c, reveal);
 
+    if (holdT > 0) drawHoldRing(c);
     drawTouch(c);
     if (debug) drawDebug(c);
     screen.present();
   },
 });
+
+/**
+ * 길게 누르는 동안 손가락 둘레에 차오르는 고리.
+ *
+ * 이게 없으면 길게 누르기는 그냥 '안 되는 조작'이다 — 얼마나 눌러야
+ * 하는지 알 길이 없으니 손을 떼버린다. 진행이 보여야 기다린다.
+ */
+function drawHoldRing(c: CanvasRenderingContext2D): void {
+  const v = screen.toView(clientX, clientY);
+  if (!v.inside) return;
+  const r = 16;
+  c.save();
+  c.translate(v.x, v.y);
+
+  c.strokeStyle = 'rgba(255,226,186,0.22)';
+  c.lineWidth = 2.5;
+  c.beginPath();
+  c.arc(0, 0, r, 0, Math.PI * 2);
+  c.stroke();
+
+  // 12시부터 시계방향으로 찬다
+  c.strokeStyle = 'rgba(255,214,150,0.95)';
+  c.lineWidth = 2.5;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * holdT);
+  c.stroke();
+  c.restore();
+}
 
 function drawTouch(c: CanvasRenderingContext2D): void {
   const v = screen.toView(clientX, clientY);

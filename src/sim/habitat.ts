@@ -528,6 +528,32 @@ export class Habitat {
     return this.furniture.some((f) => f.id === id);
   }
 
+  /**
+   * ★ 여러 개 놓을 수 있는 물건 — 선반뿐이다.
+   *
+   * 한동안 전부 여러 개 놓을 수 있었다. 그랬더니 사육장이 같은 집 네 채,
+   * 같은 밥그릇 세 개가 됐다. 방을 꾸미는 게 아니라 도장을 찍는 게 된다.
+   * 하루에 하나씩 받는 게임에서 하나를 복사할 수 있으면 모을 이유도 옅어진다.
+   *
+   * 선반만 예외인 건 선반이 '하나의 물건'이 아니라 **길이**이기 때문이다.
+   * 옆에 붙이면 하나의 긴 선반이 된다(planksJoin). 두 개를 못 놓으면
+   * 긴 선반이라는 것 자체가 없어진다.
+   */
+  private static readonly STACKABLE = new Set<FurnitureId>(['shelf']);
+
+  /**
+   * 지금 이걸 (하나 더) 놓을 수 있는가.
+   *
+   * ★ 쟁반 그림과 입력 판정이 **같은 함수**를 봐야 한다.
+   *   따로 두면 흐릿하게 그려놓고 눌리거나, 멀쩡해 보이는데 안 눌린다.
+   *   이 프로젝트에서 같은 판단을 두 군데 둔 건 전부 버그가 됐다.
+   */
+  canPlace(id: FurnitureId): boolean {
+    if (!this.unlocked.has(id)) return false;
+    if (Habitat.STACKABLE.has(id)) return true;
+    return !this.isPlaced(id);
+  }
+
   /** 종류별로 몇 개 나가 있는지 (쟁반에 개수를 적는다) */
   placedIds(): Map<FurnitureId, number> {
     const m = new Map<FurnitureId, number>();

@@ -100,6 +100,7 @@ export function createHamster(
     petBout: 0,
     petContact: 0,
     petJudged: false,
+    petPoke: 0,
     petRefuseFor: 0,
     flinch: 0,
     refuseLook: 0,
@@ -359,6 +360,7 @@ function updatePetting(h: Hamster, ctx: WorldCtx): void {
   const { dt, pointer } = ctx;
 
   if (h.petRefuseFor > 0) h.petRefuseFor -= dt;
+  if (h.petPoke > 0) h.petPoke -= dt;
   h.flinch = damp(h.flinch, 0, 0.12, dt);
 
   // 관 안에서는 만질 수 없다 — 플라스틱 너머니까
@@ -377,7 +379,9 @@ function updatePetting(h: Hamster, ctx: WorldCtx): void {
 
   h.petContact += dt;
 
-  if (!h.petting && !h.petJudged && h.petRefuseFor <= 0 && !h.asleep && pointer.still > 0.28) {
+  // 마우스는 '가만히 0.28초', 손가락은 '톡'. 둘 다 같은 판정으로 들어간다.
+  const asked = pointer.still > 0.28 || h.petPoke > 0;
+  if (!h.petting && !h.petJudged && h.petRefuseFor <= 0 && !h.asleep && asked) {
     h.petJudged = true;
 
     // ★ 처음 몇 번은 반드시 받아준다.

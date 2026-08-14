@@ -575,23 +575,37 @@ export function drawShelfTray(
   ctx: CanvasRenderingContext2D,
   hoverIdx: number,
   owned: ReadonlySet<FurnitureId>,
-  /** 사육장에 몇 개나 나가 있는지 — 흐리게 하지 않고 개수만 알려준다 */
+  /** 사육장에 몇 개나 나가 있는지 (여러 개 놓이는 것만 숫자가 붙는다) */
   placedCount: ReadonlyMap<FurnitureId, number>,
+  /** 지금 (하나 더) 놓을 수 있는가 — 판단은 habitat.canPlace 한 군데서만 한다 */
+  canPlace: (id: FurnitureId) => boolean,
 ): void {
   const box = trayPanel(ctx, FURNITURE_IDS.length);
   FURNITURE_IDS.forEach((id, i) => {
     const { cx, cy } = slotAt(box, i);
     const have = owned.has(id);
-    if (i === hoverIdx && have) highlight(ctx, cx, cy);
-    const paint = (): void => drawShelfIcon(ctx, id, cx, cy + 5, i === hoverIdx && have);
+    const usable = have && canPlace(id);
+    if (i === hoverIdx && usable) highlight(ctx, cx, cy);
+    const paint = (): void => drawShelfIcon(ctx, id, cx, cy + 5, i === hoverIdx && usable);
     if (!have) {
       silhouette(ctx, paint);
       return;
     }
+    /**
+     * 이미 나가 있는 것은 흐리게. '없는 것'(실루엣)과는 다른 상태다 —
+     * 실루엣은 아직 못 가진 것이고, 이건 가졌는데 지금 쓰고 있는 것이다.
+     * 둘을 같은 모양으로 보여주면 왜 안 눌리는지 알 수가 없다.
+     */
+    if (!usable) {
+      ctx.save();
+      ctx.globalAlpha = 0.32;
+      paint();
+      ctx.restore();
+      return;
+    }
     paint();
     /**
-     * 나가 있어도 흐리게 하지 않는다 — 이제 얼마든지 더 놓을 수 있으니까
-     * '못 쓰는 것'이 아니다. 대신 몇 개 놓았는지만 작게 적는다.
+     * 몇 개 놓았는지 작게 적는다 (선반처럼 여러 개 놓이는 것만 해당).
      * 두 개부터 적는다. 하나일 때 '1'이 붙으면 세라는 뜻으로 읽힌다.
      */
     const n = placedCount.get(id) ?? 0;
