@@ -157,7 +157,19 @@ export function drawBowlFood(
   if (!food) return;
   const bowl = hab.affordAll('eat')[0];
   if (!bowl) return;
-  FOODS[food].draw(ctx, originX(bowl.cx) + hab.spotX(bowl), groundY(bowl.cy) - 8, 0.85);
+  /**
+   * ★ spotX는 이미 월드 좌표다 (originX + f.x + anchor).
+   *
+   * 여기서 originX를 한 번 더 더하고 있었다. 밥그릇이 0번 칸에 있으면
+   * 0을 더하는 셈이라 멀쩡해 보인다. 그런데 칸을 옮기는 순간 칸 번호 ×
+   * 52픽셀만큼 먹이가 날아간다. 오른쪽 칸으로 옮기면 사육장 밖에 담긴다.
+   *
+   * 햄스터는 spotX를 그대로 써서 진짜 그릇 앞으로 걸어갔다. 그래서
+   * '밥은 저기 떠 있는데 얘는 여기서 먹는' 그림이 됐다.
+   *
+   * spotX를 쓰는 다른 여섯 곳은 전부 맞게 쓰고 있었다. 여기만 틀렸다.
+   */
+  FOODS[food].draw(ctx, hab.spotX(bowl), groundY(bowl.cy) - 8, 0.85);
 }
 
 /**
