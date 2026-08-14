@@ -697,6 +697,17 @@ canvas.addEventListener('pointerdown', (e) => {
   const now = performance.timeOrigin + performance.now();
   const w = camera.toWorld(v.x, v.y);
 
+  /**
+   * ★ 새로 눌렸는데 아직 뭔가 들려 있다 = 앞선 손짓이 제대로 안 끝났다.
+   *
+   * 이 게임은 손가락 하나로만 논다. 들고 있는 채로 또 누르는 일은 없어야
+   * 정상이다. 그런데도 그 상태라면 앞의 pointerup을 못 받은 것이므로,
+   * 여기서 스스로 되돌린다. pointercancel까지 놓치는 경로가 또 있어도
+   * 이 한 줄이 다음 터치에서 복구해준다 — 한 번 꼬이면 앱을 껐다 켤
+   * 때까지 물건이 손을 따라다니는 것보다 훨씬 낫다.
+   */
+  if (dragIndex >= 0 || dragNew || hamster.held || pending) releaseEverything();
+
   // 소포 결과가 떠 있으면 아무 데나 눌러 닫는다. 그 외 조작은 안 먹는다.
   if (reveal) {
     if (reveal.t > 0.25) reveal = null;
@@ -964,6 +975,46 @@ function cancelDrag(): void {
 }
 
 /**
+ * ★ 손을 뗀 게 아니라 **빼앗긴** 경우.
+ *
+ * 브라우저가 제스처를 가져가면(전체화면 전환, 시스템 제스처, 창 전환)
+ * pointerup 대신 pointercancel이 온다. 이걸 아무도 안 받고 있어서
+ * 들고 있던 게 **영원히 들린 채로** 남았다.
+ *
+ * 그 상태로 다른 걸 톡 누르면, 아직 손에 붙어 있는 물건이 누른 자리로
+ * 순간이동한다. 누르지도 않은 물건이 제멋대로 날아다니는 것처럼 보인다.
+ * (접시를 끌다 취소된 뒤 집을 누르니 접시가 256→8로 튀는 걸 확인했다)
+ *
+ * 여기서는 '없던 일'로 되돌린다. 놓는 게 아니라 취소다 — 빼앗긴 손짓의
+ * 마지막 좌표를 진짜 의도로 볼 이유가 없다.
+ */
+function releaseEverything(): void {
+  clearPending();
+  if (hamster.held) {
+    hamster.held = false;
+    putDown(hamster.wx, hamster.wy); // 허공에 두지 않는다
+  }
+  if (dragNew) dragNew = null;
+  if (dragIndex >= 0) {
+    if (dragOrigin) hab.move(dragIndex, { cx: dragOrigin.cx, cy: dragOrigin.cy }, dragOrigin.x);
+    dragIndex = -1;
+    dragOrigin = null;
+  }
+  dropT = 0;
+}
+
+for (const ev of ['pointercancel', 'lostpointercapture']) {
+  window.addEventListener(ev, releaseEverything);
+}
+/**
+ * 창이 가려지는 것도 같은 취급이다. 앱을 나갔다 오면 손가락은 이미
+ * 화면에 없는데, 돌아왔을 때 물건이 여전히 들려 있으면 안 된다.
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) releaseEverything();
+});
+
+/**
  * 이 자리에 놓으면 선반 위인가, 톱밥 위인가.
  *
  * 손이 선반 상판 근처에 있으면 그 높이에 얹는다. 큰 물건과 층을 만드는
@@ -1213,6 +1264,15 @@ startLoop({
       g.__viewW = VIEW_W;
       g.__viewH = VIEW_H;
       // 테스트가 화면 어디를 눌러야 하는지 알 수 있게 (데모에서만)
+      // 어느 가구가 잡히는지 / 지금 무엇을 들고 있는지 (테스트에서 눈으로 못 보는 것)
+      g.__hit = (wx: number, wy: number) => furnitureAt(wx, wy);
+      g.__drag = () => ({
+        dragIndex,
+        dragOffset: Math.round(dragOffset * 10) / 10,
+        dragOrigin,
+        dragMoved,
+        pending: pending ? { kind: pending.kind, index: pending.index } : null,
+      });
       g.__cam = (wx: number, wy: number) => {
         const r = canvas.getBoundingClientRect();
         const k = r.width / VIEW_W;
