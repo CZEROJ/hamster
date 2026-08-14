@@ -425,6 +425,15 @@ type Pending = {
   t0: number;
   vx: number;
   vy: number;
+  /**
+   * 처음 손가락이 닿은 월드 x.
+   *
+   * ★ 물건과 손가락 사이 거리는 **닿은 순간**으로 재야 한다.
+   *   집히는 건 그보다 늦다(시간이 차거나 14px 끌었을 때). 그때의
+   *   손가락 자리로 재면 끌기 시작한 만큼 물건이 옆으로 밀린 채
+   *   따라온다 — 잡은 데를 안 잡고 있는 것처럼 보인다.
+   */
+  wx: number;
 };
 /** 아직 집을지 부를지 안 정해진 누름 (손가락 기기에서만 생긴다) */
 let pending: Pending | null = null;
@@ -617,12 +626,69 @@ function drawDropShadow(c: CanvasRenderingContext2D, wx: number): void {
 }
 
 /** 이 지점에 놓인 가구 (없으면 -1). 위에 놓인 것부터 본다. */
+/**
+ * 이 지점에 있는 가구. 겹쳐 있으면 **작은 쪽**이 잡힌다.
+ *
+ * ★ 예전엔 '나중에 놓은 것'이 이겼다(뒤에서부터 찾고 첫 번째를 반환).
+ *   그리기 순서와 같으니 맞는 말 같지만, 실제로는 이렇게 됐다:
+ *
+ *   선반은 판부터 다리 끝까지가 하나의 상자다. 폭 52에 키도 크다.
+ *   그 앞이나 아래에 밥그릇을 놓으면 상자가 통째로 겹친다. 선반이
+ *   나중에 놓였으면 **밥그릇을 눌러도 선반이 잡힌다.**
+ *
+ *   눈에는 밥그릇이 보인다. 선반은 다리가 가늘어서 사이가 뻥 뚫려 있고,
+ *   그 사이로 밥그릇이 보인다. 보이는 걸 눌렀는데 안 보이는 게 잡히면
+ *   그건 조작이 아니라 복불복이다.
+ *
+ * 작은 쪽을 고르는 건 '더 정확히 겨냥한 것'을 고르는 것과 같다.
+ * 큰 물건은 어차피 안 겹치는 넓은 데가 많아서 집을 데가 얼마든지 있다.
+ * 크기가 같으면 나중에 놓은(위에 그려지는) 쪽이 이긴다.
+ */
+/**
+ * 손가락으로 집을 때 이만큼(월드 픽셀)은 되게 넓힌다.
+ *
+ * 밥그릇 같은 납작한 물건은 판정 상자가 세로 13픽셀뿐이다. 화면에서
+ * 20px — 손가락 최소치(44px)의 절반도 안 된다. 책상 아이콘에 했던 것과
+ * 같은 문제이고, 같은 답이다: **그림은 그대로 두고 판정만 넓힌다.**
+ *
+ * 넓히면 서로 더 겹치는데, 그건 아래 '작은 쪽이 이긴다'가 받아준다.
+ * 넓힌 크기가 아니라 원래 크기로 비교하기 때문에, 밥그릇을 크게 잡아줘도
+ * 여전히 밥그릇이 선반을 이긴다.
+ */
+const GRAB_MIN = 30;
+
 function furnitureAt(wx: number, wy: number): number {
-  for (let i = hab.furniture.length - 1; i >= 0; i--) {
-    const r = furnitureRect(hab.furniture[i]!);
-    if (wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return i;
-  }
-  return -1;
+  /**
+   * ★ 두 단계로 찾는다. 정확히 맞은 게 있으면 그게 이긴다.
+   *
+   * 한 번에 넓혀서 찾으면 가는 물건이 옆을 뺏는다. 사다리는 폭이 16이라
+   * 30까지 넓히면 거의 두 배가 되고, 그 옆의 챗바퀴를 눌러도 사다리가
+   * 잡힌다. 넓히기는 **빗나갔을 때 구해주는 것**이지, 안 눌러도 잡히게
+   * 하는 게 아니다.
+   */
+  const scan = (pad: number): number => {
+    let best = -1;
+    let bestArea = Infinity;
+    for (let i = 0; i < hab.furniture.length; i++) {
+      const r = furnitureRect(hab.furniture[i]!);
+      const gx = pad ? Math.max(0, (pad - r.w) / 2) : 0;
+      const gy = pad ? Math.max(0, (pad - r.h) / 2) : 0;
+      if (wx < r.x - gx || wx > r.x + r.w + gx) continue;
+      if (wy < r.y - gy || wy > r.y + r.h + gy) continue;
+      // ★ 비교는 **원래** 크기로. 넓힌 크기로 재면 작은 물건이 다 같아져서
+      //   '작은 쪽이 이긴다'가 무의미해진다.
+      const area = r.w * r.h;
+      if (area <= bestArea) {
+        bestArea = area;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const exact = scan(0);
+  if (exact >= 0 || !COARSE) return exact;
+  return scan(GRAB_MIN); // 손가락이 빗나갔을 때만
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -719,7 +785,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (overHamster(w.x, w.y)) {
     tray = 'none';
     // 손가락이면 아직 집지 않는다. 톡이면 인사, 길게면 들어올리기.
-    if (COARSE) pending = { kind: 'hamster', index: -1, t0: now, vx: v.x, vy: v.y };
+    if (COARSE) pending = { kind: 'hamster', index: -1, t0: now, vx: v.x, vy: v.y, wx: w.x };
     else grabHamster(now);
     return;
   }
@@ -727,7 +793,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const idx = furnitureAt(w.x, w.y);
   if (idx >= 0) {
     tray = 'none';
-    if (COARSE) pending = { kind: 'furniture', index: idx, t0: now, vx: v.x, vy: v.y };
+    if (COARSE) pending = { kind: 'furniture', index: idx, t0: now, vx: v.x, vy: v.y, wx: w.x };
     else grabFurniture(idx, w.x);
     return;
   }
@@ -1065,7 +1131,8 @@ startLoop({
         clearPending();
         buzz(14); // 손끝으로 "잡혔다"고 대답한다
         if (p.kind === 'hamster') grabHamster(now);
-        else grabFurniture(p.index, w.x);
+        // 지금 손가락 자리(w.x)가 아니라 **처음 닿은 자리**(p.wx)로 잡는다
+        else grabFurniture(p.index, p.wx);
       }
     }
 
