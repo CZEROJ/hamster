@@ -1370,7 +1370,26 @@ startLoop({
       c.save();
       camera.apply(c);
       const id = dragNew ?? hab.furniture[dragIndex]?.id;
-      if (id) drawCarried(c, id, worldPointer.x, worldPointer.y, carryTilt, now);
+      if (id) {
+        /**
+         * ★ 손에 든 그림은 **놓일 자리**에 맞춰 그린다.
+         *
+         * 예전엔 손가락 한가운데에 그렸다. 그런데 실제로 앉는 자리는
+         * 처음 잡은 지점만큼(dragOffset) 떨어져 있다. 물건을 가장자리
+         * 잡으면 둘이 폭의 절반만큼 어긋나고, 손을 떼는 순간 그만큼
+         * 옆으로 튄다. 잡을 때마다 튀니까 '갔다가 돌아온다'로 보인다.
+         *
+         * 그림자·미리보기(drop ghost)는 이미 놓일 자리에 그리고 있었다.
+         * 손에 든 것만 다른 데 있었던 셈이라, 셋 중 이것만 틀렸다.
+         *
+         * 새로 꺼내는 것(dragNew)은 원래 손가락 가운데에 놓이므로 그대로.
+         */
+        const cx =
+          dragNew !== null
+            ? worldPointer.x
+            : worldPointer.x - dragOffset + FURNITURE[id].w / 2;
+        drawCarried(c, id, cx, worldPointer.y, carryTilt, now);
+      }
       camera.release(c);
       c.restore();
     }
