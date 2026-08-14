@@ -145,18 +145,38 @@
         한 번만 시도한다(once). 사용자가 일부러 전체화면을 빠져나왔는데
         다시 끌어다 넣으면 그건 앱이 아니라 덫이다.
       */
-      addEventListener(
-        'pointerdown',
-        () => {
-          if (!matchMedia('(pointer: coarse)').matches) return;
-          if (document.fullscreenElement) return;
-          const el = document.documentElement;
-          const go = el.requestFullscreen ?? el.webkitRequestFullscreen;
-          // 아이폰은 이 기능이 아예 없다. 없으면 조용히 넘어간다.
-          if (go) go.call(el, { navigationUI: 'hide' })?.catch(() => {});
-        },
-        { once: true },
-      );
+      /*
+        처음엔 딱 한 번만 시도했다(once). 그게 틀렸다 —
+
+        첫 시도가 거절당하면 그걸로 끝이었다. 브라우저가 왜 거절하는지는
+        기기마다 다르고(제스처 인정 시점, 설치 방식, 화면 상태) 이쪽에서
+        알 수가 없다. 한 번에 걸리기를 바라는 건 계획이 아니다.
+
+        그래서 **될 때까지** 시도하되, 한 번 되고 나면 그만둔다.
+        사용자가 스스로 전체화면을 빠져나온 경우에도 그만둔다 —
+        나갔는데 다음 터치에 도로 끌려들어가면 그건 앱이 아니라 덫이다.
+      */
+      let fsDone = false;
+      document.addEventListener('fullscreenchange', () => {
+        // 들어간 적이 있고 지금 나와 있다 = 사용자가 나간 것. 더는 안 건다.
+        if (!document.fullscreenElement) fsDone = true;
+      });
+      addEventListener('pointerdown', () => {
+        if (fsDone || document.fullscreenElement) return;
+        if (!matchMedia('(pointer: coarse)').matches) {
+          fsDone = true; // 마우스는 애초에 대상이 아니다
+          return;
+        }
+        const el = document.documentElement;
+        const go = el.requestFullscreen || el.webkitRequestFullscreen;
+        // 아이폰은 이 기능이 아예 없다. 매번 헛시도하지 않게 여기서 접는다.
+        if (!go) {
+          fsDone = true;
+          return;
+        }
+        const r = go.call(el, { navigationUI: 'hide' });
+        if (r && r.catch) r.catch(() => {}); // 실패는 조용히. 다음 터치에 다시 해본다.
+      });
     </script>
   </body>
 </html>
