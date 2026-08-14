@@ -24,23 +24,35 @@ import { COARSE, VIEW_H, VIEW_W } from './screen';
 /** 햄스터는 상자가 아니라 이동장으로 간다 — 물건이 아니니까 */
 export type DropKind = 'crate' | 'carrier';
 
-const W = 108;
-const H = 44;
+const W = 84;
+const H = 30;
 
+/**
+ * ★ 가로 자리는 '책상에서 내 물건이 없는 쪽의 한가운데'다.
+ *
+ * 그냥 화면 한가운데(VIEW_W/2)에 뒀더니 폰에서 공책·이동장 자리와
+ * 겹쳤다. 책상 물건은 오른쪽 끝에서부터 238만큼을 쓰니, 그 왼쪽
+ * 구간의 한가운데로 잡으면 화면이 넓든 좁든 절대 안 겹친다.
+ */
 export function dropZoneRect(): { x: number; y: number; w: number; h: number } {
   /**
-   * 손가락 기기에서는 조금 더 위로 띄운다.
-   * 화면 맨 아래는 폰의 홈 제스처 바가 먹는 구간이라, 거기 놓으면
-   * 놓으려다 앱이 나가버린다. 되돌릴 수 없는 실수는 만들면 안 된다.
+   * 세로는 사육장 **아래**, 책상 위. 여기가 중요하다.
+   *
+   * 처음엔 화면 아래에서 44 높이로 띄웠는데, 폰은 화면이 낮아서
+   * 이게 사육장 바닥까지 올라왔다. 그래서 **사육장 한가운데에 물건을
+   * 놓으면 놓이는 게 아니라 상자로 들어갔다.** 옮기려던 게 치워졌다.
+   *
+   * 손가락 기기는 아래를 조금 더 비운다 — 화면 맨 아래는 홈 제스처
+   * 바가 먹는 구간이라, 거기서 손을 떼면 앱이 나가버린다.
    */
-  const bottom = VIEW_H - (COARSE ? 26 : 14);
-  return { x: VIEW_W / 2 - W / 2, y: bottom - H, w: W, h: H };
+  const bottom = VIEW_H - (COARSE ? 14 : 8);
+  return { x: (VIEW_W - 238) / 2 - W / 2, y: bottom - H, w: W, h: H };
 }
 
 export function overDropZone(px: number, py: number): boolean {
   const r = dropZoneRect();
-  // 판정은 그림보다 넉넉하다 — 놓는 자리는 못 맞히면 아무 의미가 없다
-  return px >= r.x - 14 && px <= r.x + r.w + 14 && py >= r.y - 16 && py <= r.y + r.h + 10;
+  // 판정은 그림보다 조금 넉넉하되, 위로는 안 넓힌다 — 위가 사육장이다
+  return px >= r.x - 10 && px <= r.x + r.w + 10 && py >= r.y - 4 && py <= r.y + r.h + 8;
 }
 
 /**
@@ -90,14 +102,14 @@ export function drawDropZone(
   ctx.strokeStyle = over ? 'rgba(255,206,142,0.95)' : 'rgba(214,164,106,0.6)';
   ctx.stroke();
 
-  if (kind === 'crate') drawOpenCrate(ctx, -r.w / 2 + 21, 0, over);
-  else drawCarrierMark(ctx, -r.w / 2 + 21, 0, over);
+  if (kind === 'crate') drawOpenCrate(ctx, -r.w / 2 + 17, 0, over);
+  else drawCarrierMark(ctx, -r.w / 2 + 17, 0, over);
 
   ctx.fillStyle = over ? '#ffe6c2' : '#d8bb92';
-  ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+  ctx.font = '600 10px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(kind === 'crate' ? '상자에 넣기' : '쉬러 가기', -r.w / 2 + 36, 1);
+  ctx.fillText(kind === 'crate' ? '상자에 넣기' : '쉬러 가기', -r.w / 2 + 30, 1);
 
   ctx.restore();
 }

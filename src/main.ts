@@ -447,6 +447,18 @@ function clearPending(): void {
   holdT = 0;
 }
 
+/**
+ * 지금 손을 떼면 상자로 들어가는가.
+ *
+ * ★ 불이 들어오는 판단과 실제로 들어가는 판단이 **같은 함수**여야 한다.
+ *   따로 두면 불은 켜졌는데 안 들어가거나, 안 켜졌는데 들어간다.
+ *   후자는 물건이 소리 없이 치워지는 것이라 특히 나쁘다.
+ */
+function overCrate(vx: number, vy: number, wx: number, wy: number): boolean {
+  if (cellOfPoint(hab, wx, wy)) return false; // 사육장이 이긴다
+  return overDropZone(vx, vy);
+}
+
 function grabHamster(now: number): void {
   hamster.held = true;
   hamster.falling = false; // 떨어지는 중에 다시 잡을 수 있다
@@ -762,8 +774,9 @@ window.addEventListener('pointerup', () => {
 
   if (dragNew) {
     const cell = cellOfPoint(hab, w.x, w.y);
-    // 꺼내던 걸 상자 위에 도로 놓으면 그냥 없던 일이 된다 — 취소하는 길
-    if (overDropZone(v.x, v.y)) {
+    // 꺼내던 걸 상자 위에 도로 놓으면 그냥 없던 일이 된다 — 취소하는 길.
+    // 여기서도 사육장이 이긴다 (위 dragIndex 블록의 이유와 같다)
+    if (!cell && overDropZone(v.x, v.y)) {
       dragNew = null;
       dropT = 0;
     } else if (v.inside && cell) {
@@ -779,7 +792,17 @@ window.addEventListener('pointerup', () => {
     dragNew = null;
   }
   if (dragIndex >= 0) {
-    if (overDropZone(v.x, v.y)) {
+    /**
+     * ★ 사육장 안이면 무조건 놓는 쪽이 이긴다.
+     *
+     * 자리를 아무리 잘 잡아도 화면 크기에 따라 상자 자리가 사육장 바닥과
+     * 겹칠 수 있다. 실제로 폰에서 겹쳐서, 사육장 한가운데에 놓으려던 물건이
+     * 상자로 들어갔다 — 옮기려던 게 치워졌으니 제일 나쁜 종류의 오작동이다.
+     *
+     * 좌표로 안 겹치게 맞추는 건 화면 하나 바뀌면 또 깨진다.
+     * '놓을 수 있는 칸 위면 놓는다'로 못 박으면 겹칠 수가 없다.
+     */
+    if (overCrate(v.x, v.y, w.x, w.y)) {
       // 상자에 넣는다 — 없어지는 게 아니라 장난감통으로 돌아간다
       hab.remove(dragIndex);
       sfx.play('rustle', 0.6);
@@ -1255,7 +1278,12 @@ startLoop({
      * 이 게임에서 화면에 상주하는 버튼은 책상 위 다섯 개로 충분하다.
      */
     if (dropT > 0.01) {
-      drawDropZone(c, 'crate', dropT, overDropZone(pointer.x, pointer.y));
+      drawDropZone(
+        c,
+        'crate',
+        dropT,
+        overCrate(pointer.x, pointer.y, worldPointer.x, worldPointer.y),
+      );
     }
 
     /**
