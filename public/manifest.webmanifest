@@ -4,6 +4,7 @@
   "description": "작은 방에 사는 햄스터. 매일 조금씩 달라진다.",
   "start_url": ".",
   "scope": ".",
+  "display_override": ["fullscreen"],
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#241d1a",

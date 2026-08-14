@@ -1,7 +1,7 @@
 ﻿import { clamp } from '../core/math';
 import type { Habitat } from '../sim/habitat';
 import { type Season, type Weather } from '../sim/season';
-import { CAGE_BOTTOM, DESK_Y, MODULE_W, originX } from '../world';
+import { CAGE_BOTTOM, CAGE_W, DESK_Y, MODULE_W, originX } from '../world';
 import { VIEW_H } from './screen';
 
 /**
@@ -77,7 +77,22 @@ const WALL_PLAN: Record<string, Prop> = {
  */
 const WINDOW_W = 104;
 const WINDOW_H = 86;
-const WINDOW_Y = () => baseY - 177;
+/**
+ * ★ 창은 벽 줄이 아니라 사육장을 기준으로 잡혀 있다. 그래서 따로 내려야 한다.
+ *
+ * 창은 base-34에서 시작해 86만큼 내려온다 → 윗변이 책상선에서 211 위다.
+ * 폰을 눕히면 책상 위로 보이는 게 200밖에 안 돼서 딱 이만큼 잘렸다.
+ *
+ * 벽 소품과 같은 비율로 누르면 안 된다 — 창 아랫변은 사육장 뒤로 물려야
+ * '뒤에 있는 물건'으로 읽히는데, 같이 눌러버리면 사육장 안으로 통째로
+ * 들어가서 아예 안 보인다. 윗변이 화면에 들어오는 데까지만 내린다.
+ */
+const WINDOW_Y = (): number => {
+  // viewTop에는 이미 20px 여유가 붙어 있다(148행). 진짜 화면 끝은 그만큼 아래다.
+  const avail = baseY - viewTop - 20;
+  // 창 윗변은 base에서 39 위(-34에 테두리 5) → 여기에 여유 6을 더 둔다
+  return baseY - Math.min(177, avail - 45);
+};
 
 /** 창이 어느 칸·어느 줄에 있는지 — 창빛이 따라다녀야 해서 한 군데서 찾는다 */
 const WINDOW_AT = ((): { seg: number; row: number } => {
@@ -147,6 +162,7 @@ export function drawBackdrop(
 ): void {
   viewTop = view.top - 20;
   viewBottom = view.bottom + 20;
+  viewSpan = view.right - view.left;
   const r = litRange(hab);
   const from = Math.floor(view.left / SEG_W) - 1;
   const to = Math.ceil(view.right / SEG_W) + 1;
@@ -159,15 +175,17 @@ export function drawBackdrop(
 
   // 책상 위 소품
   for (const it of DESK_ITEMS) {
-    drawProp(ctx, it.x - SEG_W / 2, it.prop, lightAt(it.x, r), baseY, c);
+    const px = roomX(it.x);
+    drawProp(ctx, px - SEG_W / 2, it.prop, lightAt(px, r), baseY, c);
   }
 
   // 벽에 걸린 소품 — 보이는 높이만 그린다
-  WALL_ROWS.forEach((y, row) => {
+  wallRowsFor(view.top).forEach((y, row) => {
     if (y > view.bottom + 60 || y < view.top - 90) return;
     for (let seg = from; seg <= to; seg++) {
       const prop = wallPropOf(seg, row, seed);
-      drawProp(ctx, seg * SEG_W, prop, lightAt(seg * SEG_W + SEG_W / 2, r), y, c);
+      const px = roomX(seg * SEG_W + SEG_W / 2);
+      drawProp(ctx, px - SEG_W / 2, prop, lightAt(px, r), y, c);
     }
   });
 
@@ -206,9 +224,56 @@ const baseY = DESK_Y;
  * (안 보이던 게 생기는 게 아니라, 늘 거기 있던 게 눈에 들어온다)
  */
 const WALL_ROWS = [baseY - 152, baseY - 232, baseY - 312, baseY - 392];
+
+/**
+ * ★ 화면이 낮으면 벽 소품이 내려온다.
+ *
+ * 폰을 눕히면 책상 위로 보이는 방이 200 월드픽셀까지 줄어든다.
+ * 시계는 232에 걸려 있으니 그냥 두면 화면 밖이다 — 실제로 잘렸었다.
+ *
+ * 여기서 방향이 두 갈래였다. 카메라를 더 빼서 방 전체를 보여주거나,
+ * 방을 다시 앉히거나. 전자를 고르면 햄스터가 작아진다. 햄스터가 작아지는
+ * 건 이 게임에서 제일 하면 안 되는 일이라 후자로 갔다.
+ *
+ * 잘라내는 게 아니라 **다시 앉히는** 것이다. 진짜 작은 방은 천장도 낮고,
+ * 그런 방에서는 시계를 낮게 건다. 어색한 타협이 아니라 그냥 작은 방이다.
+ *
+ * 창문은 여기서 빼야 한다 — 창 높이(-177)는 벽 줄이 아니라 사육장
+ * 꼭대기(-143)를 기준으로 잡은 값이라, 같이 눌러버리면 사육장 뒤로
+ * 통째로 숨어서 아예 사라진다.
+ */
+function wallRowsFor(top: number): number[] {
+  const avail = baseY - top; // 책상선 위로 실제 보이는 월드 높이
+  const need = 232 + 26; // 시계가 걸린 줄 + 시계 몸통
+  const squash = clamp(avail / need, 0.5, 1);
+  if (squash >= 1) return WALL_ROWS; // 화면이 넉넉하면 손대지 않는다
+  return WALL_ROWS.map((y) => baseY - (baseY - y) * squash);
+}
 // 벽은 화면에 보이는 세로 범위를 전부 덮는다 — 창을 키우면 벽도 그만큼 넓어진다
 let viewTop = -200;
 let viewBottom = 300;
+let viewSpan = 600;
+
+/**
+ * ★ 좁은 화면에서는 방이 사육장 쪽으로 모인다. (세로 재구성의 가로 판)
+ *
+ * 방에 놓인 것들은 스탠드(-66)부터 머그(470)까지 536 넓이에 퍼져 있다.
+ * 16:9 폰을 눕히면 보이는 폭이 455밖에 안 돼서, 양끝의 스탠드와 달력이
+ * 화면 밖으로 잘려나갔다. 시계는 하루를 말하고 달력은 한 달을 말하는데
+ * 달력만 반쪽이 나 있으면 방이 절름발이가 된다.
+ *
+ * ★ 이 함수를 **그림과 조명이 같이** 써야 한다.
+ *   위치를 여기서만 정하지 않으면 '켜져 있는데 아무것도 안 밝히는 등'이
+ *   조용히 생긴다. 벽등에서 이미 한 번 당했다.
+ *
+ * 화면이 넉넉하면 1을 곱하는 셈이라 아무 일도 일어나지 않는다.
+ */
+function roomX(x: number): number {
+  const squash = clamp(viewSpan / 560, 0.75, 1);
+  if (squash >= 1) return x;
+  const mid = CAGE_W / 2;
+  return mid + (x - mid) * squash;
+}
 const wallTop = () => viewTop;
 const wallBottom = () => Math.min(viewBottom, baseY);
 
@@ -329,7 +394,7 @@ function drawWindowLight(ctx: CanvasRenderingContext2D, c: BackdropCtx): void {
    * 줄기가 내려갈 벽을 케이지가 통째로 가린다. 코드는 도는데 화면엔 안 보였다.
    * 대신 창 둘레로 번지게 했다. 케이지 위로 드러난 벽에 실제로 닿는다.
    */
-  const cx = WINDOW_AT.seg * SEG_W + SEG_W / 2;
+  const cx = roomX(WINDOW_AT.seg * SEG_W + SEG_W / 2);
   const cy = WINDOW_Y() - 34 + WINDOW_H / 2; // 창 한가운데
   const g = ctx.createRadialGradient(cx, cy, 20, cx, cy, 210);
   g.addColorStop(0, `rgba(255,247,222,${0.26 * day})`);
@@ -357,7 +422,8 @@ function drawLampGlow(
   for (const it of DESK_ITEMS) {
     // 책상 스탠드 — 방의 주광원이라 멀리 간다
     if (it.prop === 'lamp') {
-      lights.push({ x: it.x + 8, y: baseY - LAMP_H - 4, reach: 200, power: 0.22 });
+      // ★ roomX를 통과시켜야 한다 — 그림만 옮기면 등이 빈 벽을 밝힌다
+      lights.push({ x: roomX(it.x) + 8, y: baseY - LAMP_H - 4, reach: 200, power: 0.22 });
     }
   }
   for (const l of lights) {

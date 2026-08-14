@@ -33,6 +33,37 @@ const PIXELS_PER_SCREEN_H = 480;
  */
 const SS = 2;
 
+/**
+ * ★ 손가락으로 만지는 기기인가.
+ *
+ * 기기 이름(userAgent)으로 맞히려 들면 새 기기가 나올 때마다 틀린다.
+ * 'pointer: coarse'는 브라우저가 직접 대답해주는 값이다 — 주된 입력이
+ * 뾰족한 것(마우스)이 아니라 뭉툭한 것(손가락)이라는 뜻.
+ */
+export const COARSE =
+  typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+
+/**
+ * ★ 손가락은 44px를 요구한다.
+ *
+ * 애플이 정한 최소 터치 크기다. 쟁반 한 칸이 26 게임픽셀이니, 배율이
+ * 44/26 = 1.7 아래로 내려가면 칸이 손가락보다 작아진다.
+ *
+ * 폰을 눕히면 화면 높이가 390px밖에 안 돼서 예전 규칙(h/480)으로는
+ * 배율이 0.9까지 떨어졌다. 쟁반 칸이 23px — 손가락 절반이었다.
+ * 잘 안 눌리는 게 아니라 '누를 수 없는' 크기다.
+ */
+const MIN_TOUCH_SCALE = 44 / 26;
+
+/**
+ * ★ 그렇다고 무작정 키우면 방이 안 들어간다.
+ *
+ * 사육장이 364 게임픽셀이고 책상 물건 자리가 176 더 필요하다.
+ * 가로로 이만큼은 확보돼야 방이 방처럼 보인다. 손가락 요구와
+ * 부딪히면 이쪽이 이긴다 — 안 보이는 건 못 만지느니만 못하다.
+ */
+const MIN_VIEW_W = 430;
+
 export class Screen {
   ctx!: CanvasRenderingContext2D;
   private buffer: HTMLCanvasElement;
@@ -63,7 +94,18 @@ export class Screen {
      * 지금은 버퍼가 이미 두 배(SS)로 그려지기 때문에 소수 배율에서도 안 뭉개진다.
      * 정수를 고집하면 1.5 같은 값을 못 써서 '25% 크기'를 아예 만들 수가 없다.
      */
-    this.cssScale = Math.min(6, Math.max(0.9, h / PIXELS_PER_SCREEN_H));
+    /**
+     * 손가락 기기면 '최소 손가락 크기'를 바닥으로 깐다.
+     * 단 방이 안 들어갈 만큼은 못 키운다 (w / MIN_VIEW_W 가 천장).
+     *
+     * 데스크톱은 COARSE가 false라 예전 값 그대로다 —
+     * 폰을 고치다가 PC를 망가뜨리면 안 되니 여기서 갈라둔다.
+     */
+    const fit = h / PIXELS_PER_SCREEN_H;
+    const want = COARSE ? Math.max(fit, MIN_TOUCH_SCALE) : fit;
+    const roomCap = Math.max(0.9, w / MIN_VIEW_W);
+    this.cssScale = Math.min(6, Math.max(0.9, Math.min(want, roomCap)));
+
     VIEW_W = Math.ceil(w / this.cssScale);
     VIEW_H = Math.ceil(h / this.cssScale);
 

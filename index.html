@@ -42,10 +42,80 @@
         image-rendering: pixelated;
         cursor: none;
       }
+
+      /*
+        ★ 폰 세로에서는 방을 보여주지 않고 돌려달라고 한다.
+
+        방은 가로로 긴 디오라마다. 세로 폰은 폭이 390px뿐이라 사육장(364)과
+        책상 물건을 같이 놓을 자리가 안 나온다. 억지로 우겨넣으면 일지 버튼이
+        화면 밖으로 나가서 '기억'에 손이 닿지 않는다.
+
+        매니페스트에도 가로 고정을 걸어놨지만 그건 홈 화면에서 열었을 때만
+        먹는다. 친구가 링크를 눌러 브라우저로 처음 여는 순간은 세로다 —
+        선물의 첫인상이 거기서 결정되는데, 그때 깨진 화면을 보여줄 수는 없다.
+
+        JS를 안 쓴 건 의도적이다. 게임이 뜨기 전부터 떠 있어야 한다.
+      */
+      #rotate {
+        display: none;
+      }
+      @media (orientation: portrait) and (pointer: coarse) {
+        canvas {
+          display: none;
+        }
+        #rotate {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 22px;
+          padding: 0 32px;
+          color: #d8c5ad;
+          font: 15px/1.7 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+          text-align: center;
+        }
+        /* 눕는 폰 — 말보다 그림이 빠르다 */
+        #rotate .phone {
+          width: 54px;
+          height: 92px;
+          border: 3px solid #8a7259;
+          border-radius: 11px;
+          animation: tip 2.6s ease-in-out infinite;
+        }
+        #rotate b {
+          color: #f0e2cc;
+          font-weight: 600;
+        }
+        #rotate small {
+          color: #8a7259;
+          font-size: 13px;
+        }
+      }
+      @keyframes tip {
+        0%,
+        38% {
+          transform: rotate(0deg);
+        }
+        62%,
+        100% {
+          transform: rotate(-90deg);
+        }
+      }
+      /* 어지러운 걸 싫어하는 사람에겐 안 흔든다 */
+      @media (prefers-reduced-motion: reduce) {
+        #rotate .phone {
+          animation: none;
+          transform: rotate(-90deg);
+        }
+      }
     </style>
   </head>
   <body>
     <canvas id="screen"></canvas>
+    <div id="rotate">
+      <div class="phone"></div>
+      <div><b>폰을 옆으로 돌려주세요</b><br />방이 가로로 길거든요</div>
+      <small>홈 화면에 추가하면 처음부터 가로로 열려요</small>
+    </div>
     <script type="module" src="/src/main.ts"></script>
     <script>
       // 서비스워커는 배포본에서만 등록한다.

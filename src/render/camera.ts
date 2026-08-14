@@ -1,5 +1,5 @@
 ﻿import { clamp, damp } from '../core/math';
-import { boundsOf, DESK_Y, type Cell } from '../world';
+import { boundsOf, DESK_Y, ROOM_ABOVE_DESK, type Cell } from '../world';
 import { VIEW_H, VIEW_W } from './screen';
 
 /**
@@ -38,8 +38,28 @@ export class Camera {
     const availW = VIEW_W - PAD_X * 2;
     const availH = VIEW_H - PAD_TOP - PAD_BOTTOM;
 
+    /**
+     * ★ 사육장만 맞추면 안 되고, 그 위 벽까지 맞춰야 한다.
+     *
+     * 예전엔 사육장 크기만 보고 줌을 정했다. 그러면 화면이 낮아져도
+     * 줌은 그대로여서, 사육장 위쪽 벽이 화면 밖으로 밀려났다.
+     * 폰을 눕히면 시계와 달력이 잘린 게 이것 때문이다.
+     *
+     * 책상선은 화면 78% 지점에 붙어 있으니(아래 deskFloor), 책상 위로
+     * 쓸 수 있는 화면은 VIEW_H × 0.78이다. 여기에 ROOM_ABOVE_DESK만큼의
+     * 월드가 들어가려면 줌이 이 값을 넘으면 안 된다.
+     *
+     * 화면이 넉넉하면 이 항은 MAX_ZOOM보다 커서 아무 영향이 없다 —
+     * PC는 예전과 똑같이 동작하고, 좁은 화면에서만 조용히 물러난다.
+     */
+    const roomFit = (VIEW_H * 0.78) / ROOM_ABOVE_DESK;
+
     // 방이 화면보다 작으면 다가가서 본다. 멀리서 보면 아늑한 게 아니라 그냥 멀다.
-    const targetScale = clamp(Math.min(availW / b.w, availH / b.h), 0.62, MAX_ZOOM);
+    const targetScale = clamp(
+      Math.min(availW / b.w, availH / b.h, roomFit),
+      0.62,
+      MAX_ZOOM,
+    );
     this.applyDeadZone(focus, targetScale);
 
     // 사육장 바깥 허공을 너무 많이 보여주지 않는다

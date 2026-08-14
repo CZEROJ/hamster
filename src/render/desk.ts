@@ -4,7 +4,7 @@ import { FURNITURE_IDS } from '../content/furniture';
 import { FURNITURE, type FurnitureId } from '../content/furniture';
 import { SUBSTRATE_IDS, SUBSTRATES } from '../content/modules';
 import { drawShelfIcon } from './furniture';
-import { VIEW_H, VIEW_W } from './screen';
+import { COARSE, VIEW_H, VIEW_W } from './screen';
 
 /**
  * 책상 위의 물건들 — 공책, 먹이 항아리, 보관함.
@@ -269,12 +269,40 @@ const trayY = () => LEDGE_Y() - 66;
 const TRAY_H = 28;
 const SLOT = 26;
 
+/**
+ * ★ 손가락 판정은 그림보다 크다.
+ *
+ * 마우스는 뾰족해서 2px 여유면 충분했다. 손가락은 뭉툭하고, 게다가
+ * **누르는 순간 자기 손가락이 그 물건을 가린다.** 보고 누르는 게 아니라
+ * 기억으로 누르는 것에 가깝다.
+ *
+ * 그래서 그림을 키우는 대신 판정만 키운다. 그림을 키우면 책상이 아이콘
+ * 판이 되고 방이 좁아진다 — 보이는 건 그대로 아담하고, 손만 넉넉해진다.
+ *
+ * 26은 손가락 최소치(44px)를 이 게임 좌표로 옮긴 값이다.
+ * 책상 물건이 촘촘히 붙어 있어서 무한정 넓힐 수는 없다. 옆칸을 뺏으면
+ * 안 눌리는 것보다 나쁘다 — 밥통을 누르려다 선물을 열어버리는 건
+ * 되돌릴 수도 없다.
+ */
+const TOUCH_MIN = 26;
+
 export function hit(
   box: { x: number; y: number; w: number; h: number },
   px: number,
   py: number,
 ): boolean {
-  return px >= box.x - 2 && px <= box.x + box.w + 2 && py >= box.y - 2 && py <= box.y + box.h + 2;
+  if (!COARSE) {
+    return px >= box.x - 2 && px <= box.x + box.w + 2 && py >= box.y - 2 && py <= box.y + box.h + 2;
+  }
+  // 가운데를 기준으로 최소 크기까지 넓힌다 (작은 물건일수록 많이 넓어진다)
+  const gx = Math.max(0, (TOUCH_MIN - box.w) / 2);
+  const gy = Math.max(0, (TOUCH_MIN - box.h) / 2);
+  return (
+    px >= box.x - gx &&
+    px <= box.x + box.w + gx &&
+    py >= box.y - gy &&
+    py <= box.y + box.h + gy
+  );
 }
 
 /**
